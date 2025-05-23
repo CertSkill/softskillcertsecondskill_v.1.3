@@ -1,13 +1,14 @@
-# Versione 1.15 – Valutazione per sotto-soft skill con pesi e selezione modulo
+# Versione 1.16 – Profilazione utente + valutazione per sotto-soft skill
 
 import streamlit as st
 import openai
 
-st.set_page_config(page_title="Certificazione Team Work v.1.15", layout="centered")
+st.set_page_config(page_title="Certificazione Team Work v.1.16", layout="centered")
 
 # Inizializzazione variabili di sessione
 if "fase" not in st.session_state:
-    st.session_state.fase = "scelta"
+    st.session_state.fase = "profilo"
+    st.session_state.profilo = {}
     st.session_state.sottoskills = {
         "Comunicazione": "Comunicazione",
         "Ascolto attivo": "Empatia",
@@ -28,8 +29,10 @@ if "fase" not in st.session_state:
 
 # Funzione generazione domanda
 
-def genera_domanda_per_sottoskills(nome_sottoskills):
-    prompt = f"""Sei un esperto di soft skill. Genera una domanda situazionale per valutare la sotto-soft skill "{nome_sottoskills}" all'interno della competenza Team Work. La domanda deve essere in tre parti:
+def genera_domanda_per_sottoskills(nome_sottoskills, profilo):
+    prompt = f"""Sei un esperto di soft skill. Genera una domanda situazionale per valutare la sotto-soft skill "{nome_sottoskills}" all'interno della competenza Team Work. Considera questo profilo:
+{profilo}
+La domanda deve essere in tre parti:
 1. Scenario realistico
 2. Problema specifico
 3. Domanda aperta mirata
@@ -68,7 +71,6 @@ Specifica in modo oggettivo per ogni punteggio cosa motiva la valutazione."""
                     valutazione[k] = int("".join(filter(str.isdigit, line)))
                 except:
                     pass
-    # peso raddoppiato per la dimensione primaria
     valutazione[primaria] = round(valutazione[primaria] * 1.5)
     return valutazione
 
@@ -88,15 +90,38 @@ La descrizione deve essere chiara, oggettiva, motivata, in 10-15 righe."""
     )
     return res.choices[0].message.content.strip()
 
+# FASE 0 – Profilazione
+if st.session_state.fase == "profilo":
+    st.title("Certificazione Team Work (v. 1.16)")
+    st.subheader("Compila il tuo profilo per iniziare")
+    nome = st.text_input("Nome e cognome")
+    eta = st.number_input("Età", min_value=16, max_value=100, step=1)
+    azienda = st.text_input("Azienda (facoltativa)")
+    ruolo = st.text_input("Ruolo attuale o più recente")
+    settore = st.text_input("Settore professionale o di studio")
+    anni_settore = st.slider("Anni di esperienza nel settore", 0, 40, 0)
+    anni_ruolo = st.slider("Anni di esperienza nel ruolo", 0, 40, 0)
+    if st.button("Avanti") and nome and eta and settore:
+        st.session_state.profilo = {
+            "nome": nome,
+            "eta": eta,
+            "azienda": azienda,
+            "ruolo": ruolo,
+            "settore": settore,
+            "anni_settore": anni_settore,
+            "anni_ruolo": anni_ruolo
+        }
+        st.session_state.fase = "scelta"
+        st.rerun()
+
 # FASE 1 – Selezione modulo sotto-skill
-if st.session_state.fase == "scelta":
-    st.title("Certificazione Team Work (v. 1.15)")
-    st.subheader("Seleziona la sotto-soft skill da valutare")
+elif st.session_state.fase == "scelta":
+    st.title("Seleziona la sotto-soft skill da valutare")
     scelta = st.selectbox("Sotto-soft skill:", list(st.session_state.sottoskills.keys()))
     if st.button("Avvia il test"):
         st.session_state.scelta = scelta
         st.session_state.fase = "test"
-        st.session_state.domande = [genera_domanda_per_sottoskills(scelta)]
+        st.session_state.domande = [genera_domanda_per_sottoskills(scelta, st.session_state.profilo)]
         st.rerun()
 
 # FASE 2 – Test
@@ -117,7 +142,7 @@ elif st.session_state.fase == "test":
 
         st.session_state.indice += 1
         if st.session_state.indice < 20:
-            nuova = genera_domanda_per_sottoskills(nome_sotto)
+            nuova = genera_domanda_per_sottoskills(nome_sotto, st.session_state.profilo)
             st.session_state.domande.append(nuova)
         else:
             st.session_state.fase = "fine"
@@ -127,7 +152,7 @@ elif st.session_state.fase == "test":
 elif st.session_state.fase == "fine":
     st.title("📊 Risultato modulo Team Work")
     sotto = st.session_state.scelta
-    nome = "Utente"
+    nome = st.session_state.profilo.get("nome", "Utente")
 
     dimensioni = ["Collaborazione", "Comunicazione", "Leadership", "Problem solving", "Empatia"]
     media = {k: round(sum(p[k] for p in st.session_state.punteggi) / len(st.session_state.punteggi), 2) for k in dimensioni}
@@ -148,6 +173,6 @@ elif st.session_state.fase == "fine":
     for r in report.split("\n"):
         st.markdown(r)
 
-    if st.button("🔁 Torna alla selezione" ):
+    if st.button("🔁 Torna alla selezione"):
         st.session_state.clear()
         st.rerun()
