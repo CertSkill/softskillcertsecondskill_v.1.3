@@ -1,58 +1,48 @@
-# Versione 1.14 – Sistema Antifragile con contesto cumulativo
+# Versione 1.15 – Valutazione per sotto-soft skill con pesi e selezione modulo
 
 import streamlit as st
 import openai
 
-st.set_page_config(page_title="Certificazione Team Work v.1.14", layout="centered")
+st.set_page_config(page_title="Certificazione Team Work v.1.15", layout="centered")
 
 # Inizializzazione variabili di sessione
-if "step" not in st.session_state:
-    st.session_state.step = "profilo"
-    st.session_state.profilo_utente = {}
+if "fase" not in st.session_state:
+    st.session_state.fase = "scelta"
+    st.session_state.sottoskills = {
+        "Comunicazione": "Comunicazione",
+        "Ascolto attivo": "Empatia",
+        "Rispettare le opinioni altrui": "Empatia",
+        "Gestione dei conflitti": "Problem solving",
+        "Collaborazione proattiva": "Collaborazione",
+        "Creatività": "Problem solving",
+        "Responsabilità": "Leadership",
+        "Fiducia": "Collaborazione",
+        "Compromesso": "Comunicazione",
+        "Leadership": "Leadership"
+    }
+    st.session_state.scelta = None
     st.session_state.domande = []
     st.session_state.risposte = []
-    st.session_state.sintesi = []
     st.session_state.punteggi = []
     st.session_state.indice = 0
 
-# Funzioni di generazione e valutazione
+# Funzione generazione domanda
 
-def sintetizza_profilo(parziale):
-    contesto = "\n".join([f"D: {d}\nR: {r}" for d, r in parziale])
-    prompt = f"""Sulla base delle seguenti interazioni:
-{contesto}
-
-Fornisci una breve sintesi dei comportamenti osservati in relazione alla soft skill Team Work. Concentrati su aree forti, incerte e deboli."""
+def genera_domanda_per_sottoskills(nome_sottoskills):
+    prompt = f"""Sei un esperto di soft skill. Genera una domanda situazionale per valutare la sotto-soft skill "{nome_sottoskills}" all'interno della competenza Team Work. La domanda deve essere in tre parti:
+1. Scenario realistico
+2. Problema specifico
+3. Domanda aperta mirata
+Scrivi ogni parte su una nuova riga."""
     res = openai.chat.completions.create(
         model="gpt-4-turbo",
         messages=[{"role": "user", "content": prompt}]
     )
     return res.choices[0].message.content.strip()
 
-def genera_domanda(profilo, storico, sintesi):
-    contesto = "\n".join([f"D: {d}\nR: {r}" for d, r in storico])
-    sommario = "\n".join(sintesi)
-    prompt = f"""Profilo: {profilo}
+# Valutazione con pesi personalizzati
 
-Interazioni precedenti:
-{contesto}
-
-Sintesi intermedia:
-{sommario}
-
-Genera una nuova domanda situazionale per valutare la capacità di lavorare in team, focalizzandoti su incongruenze o aree poco esplorate. Struttura in:
-- Scenario
-- Problema
-- Domanda
-
-Se possibile, rendi ogni parte distinta con una nuova riga."""
-    risposta = openai.chat.completions.create(
-        model="gpt-4-turbo",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return risposta.choices[0].message.content.strip()
-
-def valuta_risposta(risposta):
+def valuta_risposta(risposta, primaria):
     if not risposta.strip():
         return {k: 0 for k in ["Collaborazione", "Comunicazione", "Leadership", "Problem solving", "Empatia"]}
     prompt = f"""Valuta questa risposta:
@@ -63,7 +53,9 @@ Assegna un punteggio da 0 a 100 a ciascuna dimensione:
 - Comunicazione
 - Leadership
 - Problem solving
-- Empatia"""
+- Empatia
+
+Specifica in modo oggettivo per ogni punteggio cosa motiva la valutazione."""
     res = openai.chat.completions.create(
         model="gpt-4-turbo",
         messages=[{"role": "user", "content": prompt}]
@@ -76,107 +68,86 @@ Assegna un punteggio da 0 a 100 a ciascuna dimensione:
                     valutazione[k] = int("".join(filter(str.isdigit, line)))
                 except:
                     pass
+    # peso raddoppiato per la dimensione primaria
+    valutazione[primaria] = round(valutazione[primaria] * 1.5)
     return valutazione
 
-def descrizione_finale(storico, punteggio):
-    contesto = "\n".join([f"D: {d}\nR: {r}" for d, r in storico])
-    prompt = f"""Sulla base delle seguenti risposte:
-{contesto}
+# Descrizione finale
 
-E dei punteggi ottenuti:
-{punteggio}
-
-Scrivi una descrizione finale del profilo, motivando ogni valutazione, evidenziando le risposte critiche o eccellenti. Suggerisci 3 corsi di formazione pertinenti (solo nomi)."""
+def descrizione_finale(nome, sotto, media):
+    prompt = f"""Scrivi una valutazione del candidato {nome} sulla sotto-soft skill "{sotto}" del Team Work, basandoti su questi punteggi:
+{media}
+Specifica:
+- Punti di forza
+- Aree di miglioramento
+- 3 corsi formativi (solo titolo)
+La descrizione deve essere chiara, oggettiva, motivata, in 10-15 righe."""
     res = openai.chat.completions.create(
         model="gpt-4-turbo",
         messages=[{"role": "user", "content": prompt}]
     )
     return res.choices[0].message.content.strip()
 
-# Interfaccia Profilo Utente
-if st.session_state.step == "profilo":
-    st.title("Certificazione Team Work – Sistema Adattivo e Coerente (v. 1.14)")
-    st.subheader("Compila il tuo profilo per iniziare")
-
-    nome = st.text_input("Nome e cognome")
-    eta = st.number_input("Età", min_value=16, max_value=99, step=1)
-    azienda = st.text_input("Azienda attuale o più recente (può essere vuoto se studente)")
-    settore = st.text_input("Settore di attività")
-    ruolo = st.text_input("Ruolo attuale o più recente (può essere vuoto se studente)")
-    anni_settore = st.slider("Anni di esperienza nel settore", 0, 40, 0)
-    anni_ruolo = st.slider("Anni di esperienza nel ruolo", 0, 40, 0)
-
-    if st.button("Inizia il test"):
-        if all([nome, eta, settore]):
-            st.session_state.profilo_utente = {
-                "nome": nome, "eta": eta, "azienda": azienda,
-                "settore": settore, "ruolo": ruolo,
-                "anni_settore": anni_settore, "anni_ruolo": anni_ruolo
-            }
-            profilo_str = str(st.session_state.profilo_utente)
-            prima = genera_domanda(profilo_str, [], [])
-            st.session_state.domande.append(prima)
-            st.session_state.step = "test"
-            st.rerun()
-        else:
-            st.error("Compila almeno i campi obbligatori: nome, età, settore.")
-
-# Test a 30 domande con sintesi ogni 5
-elif st.session_state.step == "test":
-    st.title("Domande dinamiche di Team Work")
-    i = st.session_state.indice
-
-    st.markdown(f"**Domanda {i + 1} di 30**")
-    for riga in st.session_state.domande[i].splitlines():
-        st.markdown(riga)
-
-    risposta = st.text_area("La tua risposta", key=f"risposta_{i}")
-    if st.button("Invia risposta"):
-        st.session_state.risposte.append(risposta)
-        valutazione = valuta_risposta(risposta)
-        st.session_state.punteggi.append(valutazione)
-
-        if (i+1) % 5 == 0:
-            parziale = list(zip(st.session_state.domande, st.session_state.risposte))[-5:]
-            st.session_state.sintesi.append(sintetizza_profilo(parziale))
-
-        st.session_state.indice += 1
-        if st.session_state.indice < 30:
-            profilo_str = str(st.session_state.profilo_utente)
-            nuova = genera_domanda(
-                profilo_str,
-                list(zip(st.session_state.domande, st.session_state.risposte)),
-                st.session_state.sintesi
-            )
-            st.session_state.domande.append(nuova)
-        else:
-            st.session_state.step = "risultato"
-
+# FASE 1 – Selezione modulo sotto-skill
+if st.session_state.fase == "scelta":
+    st.title("Certificazione Team Work (v. 1.15)")
+    st.subheader("Seleziona la sotto-soft skill da valutare")
+    scelta = st.selectbox("Sotto-soft skill:", list(st.session_state.sottoskills.keys()))
+    if st.button("Avvia il test"):
+        st.session_state.scelta = scelta
+        st.session_state.fase = "test"
+        st.session_state.domande = [genera_domanda_per_sottoskills(scelta)]
         st.rerun()
 
-# Risultato finale
-elif st.session_state.step == "risultato":
-    st.title("✅ Profilazione completata")
+# FASE 2 – Test
+elif st.session_state.fase == "test":
+    nome_sotto = st.session_state.scelta
+    indice = st.session_state.indice
+    st.title(f"Modulo: {nome_sotto} – Domanda {indice + 1} di 20")
+
+    for riga in st.session_state.domande[indice].splitlines():
+        st.markdown(riga)
+
+    risposta = st.text_area("La tua risposta", key=f"risposta_{indice}")
+    if st.button("Invia risposta"):
+        primaria = st.session_state.sottoskills[nome_sotto]
+        valutazione = valuta_risposta(risposta, primaria)
+        st.session_state.risposte.append(risposta)
+        st.session_state.punteggi.append(valutazione)
+
+        st.session_state.indice += 1
+        if st.session_state.indice < 20:
+            nuova = genera_domanda_per_sottoskills(nome_sotto)
+            st.session_state.domande.append(nuova)
+        else:
+            st.session_state.fase = "fine"
+        st.rerun()
+
+# FASE 3 – Report finale
+elif st.session_state.fase == "fine":
+    st.title("📊 Risultato modulo Team Work")
+    sotto = st.session_state.scelta
+    nome = "Utente"
 
     dimensioni = ["Collaborazione", "Comunicazione", "Leadership", "Problem solving", "Empatia"]
     media = {k: round(sum(p[k] for p in st.session_state.punteggi) / len(st.session_state.punteggi), 2) for k in dimensioni}
     totale = round(sum(media.values()) / len(media), 2)
 
-    st.markdown("### Profilo finale:")
-    for k in media:
-        st.markdown(f"**{k}:** {media[k]}/100")
+    st.markdown(f"### Sotto-soft skill: **{sotto}**")
+    for k, v in media.items():
+        st.markdown(f"**{k}:** {v}/100")
 
-    st.markdown("### 🧭 Esito certificazione")
+    st.markdown("### ✅ Valutazione finale")
     if totale >= 70:
-        st.success("🎖 Complimenti! Hai ottenuto la certificazione Team Work")
+        st.success("Certificazione ottenuta ✅")
     else:
-        st.warning("Continua ad allenarti per ottenere la certificazione.")
+        st.warning("Certificazione non ottenuta ❌")
 
-    st.markdown("### 📃 Descrizione dettagliata del profilo")
-    descrizione = descrizione_finale(list(zip(st.session_state.domande, st.session_state.risposte)), media)
-    for r in descrizione.split("\n"):
+    st.markdown("### 🧾 Report dettagliato")
+    report = descrizione_finale(nome, sotto, media)
+    for r in report.split("\n"):
         st.markdown(r)
 
-    if st.button("🔄 Ricomincia il test"):
+    if st.button("🔁 Torna alla selezione" ):
         st.session_state.clear()
         st.rerun()
